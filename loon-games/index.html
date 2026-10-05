@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Velha Offline</title>
+    <!-- Carrega o Tailwind CSS para estilização fácil e responsiva -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Configuração de fonte global e corpo */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        :root {
+            --primary-color: #4f46e5; /* Indigo-600 */
+            --secondary-color: #10b981; /* Emerald-500 */
+            --background-color: #f9fafb; /* Gray-50 */
+            --surface-color: #ffffff;
+            --text-color: #1f2937; /* Gray-800 */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+
+        .game-cell {
+            /* Estilo dos botões/células do tabuleiro */
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 3.5rem; /* Grande para mobile */
+            font-weight: 900;
+            background-color: var(--surface-color);
+            border: 4px solid var(--primary-color);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+        }
+
+        .game-cell:hover:not(.disabled) {
+            background-color: #eef2ff; /* Indigo-50 */
+        }
+
+        /* Estilo para a marca 'X' */
+        .game-cell.X {
+            color: var(--primary-color);
+        }
+
+        /* Estilo para a marca 'O' */
+        .game-cell.O {
+            color: var(--secondary-color);
+        }
+        
+        /* Estilo para células vencedoras */
+        .game-cell.win {
+            background-color: #fcd34d; /* Amber-300 */
+            border-color: #d97706; /* Amber-700 */
+        }
+
+        /* Garantindo proporção quadrada para o tabuleiro */
+        .game-grid {
+            width: 100%;
+            max-width: 400px; /* Limite máximo para tablets/desktop */
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+        }
+
+        /* Estilo para o botão de reset */
+        .btn-reset {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 12px 24px;
+            font-weight: 700;
+            border-radius: 9999px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.2s;
+            text-transform: uppercase;
+        }
+
+        .btn-reset:hover {
+            background-color: #3f36a5;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container" class="w-full max-w-lg p-4 bg-white shadow-2xl rounded-xl">
+    <h1 class="text-4xl font-black text-center mb-6 text-indigo-700 tracking-tight">
+        🕹️ Jogo da Velha (Loon Games)
+    </h1>
+
+    <!-- NOVO: Seletor de Modo de Jogo -->
+    <div class="mb-4">
+        <label for="game-mode-select" class="block text-lg font-medium text-gray-700 mb-2 text-center">Modo de Jogo:</label>
+        <select id="game-mode-select" class="w-full p-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-center text-lg font-semibold">
+            <option value="PvP">👥 Jogador vs Jogador</option>
+            <option value="PvE">💻 Jogador (X) vs IA (O)</option>
+        </select>
+    </div>
+
+    <!-- Área de Status/Mensagem -->
+    <div id="game-status" class="text-xl font-bold text-center mb-6 p-3 rounded-lg bg-gray-100 border border-gray-300">
+        Jogador Atual: <span id="current-player-display" class="text-indigo-600">X</span>
+    </div>
+
+    <!-- Tabuleiro de Jogo -->
+    <div id="game-board" class="game-grid grid grid-cols-3 grid-rows-3 gap-2">
+        <!-- As células serão geradas e populadas pelo JavaScript -->
+    </div>
+
+    <!-- Botão de Reiniciar -->
+    <div class="mt-8 text-center">
+        <button id="reset-button" class="btn-reset">
+            Reiniciar Jogo
+        </button>
+    </div>
+</div>
+
+<script>
+    // Variáveis Globais
+    let board = ['', '', '', '', '', '', '', '', ''];
+    let currentPlayer = 'X';
+    let gameActive = true;
+    let winningCombination = null;
+    
+    // Variáveis do Modo IA
+    let gameMode = 'PvP'; // 'PvP' ou 'PvE'
+    const AI_PLAYER = 'O';
+    const HUMAN_PLAYER = 'X';
+
+    // Elementos do DOM
+    const boardElement = document.getElementById('game-board');
+    const statusDisplay = document.getElementById('game-status');
+    const currentPlayerDisplay = document.getElementById('current-player-display');
+    const resetButton = document.getElementById('reset-button');
+    const modeSelect = document.getElementById('game-mode-select'); // Novo elemento de seleção
+
+    // Combinações vencedoras (índices do array 'board')
+    const winConditions = [
+        [0, 1, 2], // Linha 1
+        [3, 4, 5], // Linha 2
+        [6, 7, 8], // Linha 3
+        [0, 3, 6], // Coluna 1
+        [1, 4, 7], // Coluna 2
+        [2, 5, 8], // Coluna 3
+        [0, 4, 8], // Diagonal principal
+        [2, 4, 6]  // Diagonal secundária
+    ];
+
+    /**
+     * Atualiza a mensagem de status no display.
+     * @param {string} message - A mensagem a ser exibida.
+     * @param {string} color - A classe de cor do Tailwind a ser aplicada.
+     */
+    function updateStatus(message, color = 'text-indigo-600') {
+        // Remove a classe de cor antiga do span e define a nova
+        currentPlayerDisplay.className = color;
+        
+        // Atualiza o HTML completo da div status
+        statusDisplay.innerHTML = message;
+    }
+
+    /**
+     * Atualiza o visual de uma célula.
+     * @param {number} index - O índice (0-8) da célula.
+     * @param {string} player - 'X' ou 'O'.
+     */
+    function updateCell(index, player) {
+        const cell = document.getElementById(`cell-${index}`);
+        if (cell) {
+            cell.textContent = player;
+            cell.classList.add(player);
+            cell.classList.add('disabled'); // Previne cliques repetidos
+            cell.onclick = null; // Remove o listener
+        }
+    }
+
+    /**
+     * Lida com o clique em uma célula e a lógica de jogada do Humano.
+     * @param {number} index - O índice (0-8) da célula clicada.
+     */
+    function handleCellClick(index) {
+        // 1. Condições de Saída
+        // Se o jogo não está ativo OU a célula já está preenchida OU (Modo PvE E é a vez da IA)
+        if (!gameActive || board[index] !== '' || (gameMode === 'PvE' && currentPlayer === AI_PLAYER)) {
+            return; 
+        }
+
+        // 2. Movimento Humano
+        board[index] = currentPlayer;
+        updateCell(index, currentPlayer);
+
+        // 3. Verifica o resultado
+        checkResult();
+    }
+
+    /**
+     * Verifica se houve um vencedor ou empate.
+     */
+    function checkResult() {
+        let roundWon = false;
+        
+        for (let i = 0; i < winConditions.length; i++) {
+            const combo = winConditions[i];
+            let a = board[combo[0]];
+            let b = board[combo[1]];
+            let c = board[combo[2]];
+
+            if (a === '' || b === '' || c === '') {
+                continue; // Próxima combinação
+            }
+
+            if (a === b && b === c) {
+                roundWon = true;
+                winningCombination = combo;
+                break;
+            }
+        }
+
+        if (roundWon) {
+            gameActive = false;
+            // Ajusta a classe de cor na mensagem final
+            const winnerColor = currentPlayer === HUMAN_PLAYER ? 'text-indigo-600' : 'text-green-600';
+            const winnerName = (gameMode === 'PvE' && currentPlayer === AI_PLAYER) ? 'IA (O)' : `Jogador ${currentPlayer}`;
+
+            updateStatus(`🎉 ${winnerName} venceu!`, 'font-bold');
+            highlightWinningCells();
+            return;
+        }
+
+        // Verifica se há empate (se todas as células estão preenchidas e não houve vencedor)
+        if (!board.includes('')) {
+            gameActive = false;
+            updateStatus('🤝 Empate!', 'text-gray-600');
+            return;
+        }
+
+        // Se o jogo continua, troca o jogador e verifica IA
+        switchPlayer();
+    }
+    
+    /**
+     * Destaca as três células que formam a combinação vencedora.
+     */
+    function highlightWinningCells() {
+        if (winningCombination) {
+            winningCombination.forEach(index => {
+                const cell = document.getElementById(`cell-${index}`);
+                if (cell) {
+                    cell.classList.add('win');
+                }
+            });
+        }
+    }
+
+    /**
+     * Alterna o jogador atual e atualiza o display, disparando a jogada da IA, se for o caso.
+     */
+    function switchPlayer() {
+        // A troca de jogador só ocorre se o jogo estiver ativo.
+        if (!gameActive) return;
+
+        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+        const colorClass = currentPlayer === 'X' ? 'text-indigo-600' : 'text-green-600';
+        
+        // Se for PvE, mostra 'IA' em vez de 'O'
+        const displayPlayer = (gameMode === 'PvE' && currentPlayer === AI_PLAYER) ? 'IA (O)' : currentPlayer;
+
+        updateStatus(`Jogador Atual: <span id="current-player-display" class="${colorClass}">${displayPlayer}</span>`);
+
+        // NOVO: Se for o modo PvE e for a vez da IA, inicia a jogada da IA.
+        if (gameMode === 'PvE' && currentPlayer === AI_PLAYER) {
+            // Pequeno delay para simular "pensamento"
+            setTimeout(aiMove, 500);
+        }
+    }
+
+    // --- Lógica da IA (Estratégia Insuperável) ---
+
+    /**
+     * Encontra um movimento vencedor imediato ou um bloqueio.
+     * @param {string} player - O jogador para o qual verificar a vitória/bloqueio ('X' ou 'O').
+     * @returns {number|null} O índice do movimento ou null se não houver.
+     */
+    function findWinningOrBlockingMove(player) {
+        for (const combo of winConditions) {
+            let count = 0;
+            let emptyIndex = null;
+            combo.forEach(index => {
+                if (board[index] === player) {
+                    count++;
+                } else if (board[index] === '') {
+                    emptyIndex = index;
+                }
+            });
+            // Se 2 do jogador e 1 vazio, é uma jogada crucial (vencedora ou de bloqueio)
+            if (count === 2 && emptyIndex !== null) {
+                return emptyIndex;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Executa o movimento da IA.
+     */
+    function aiMove() {
+        if (!gameActive) return;
+
+        let move = null;
+
+        // 1. Jogada VENCEDORA (AI_PLAYER = 'O')
+        move = findWinningOrBlockingMove(AI_PLAYER);
+        if (move !== null) {
+            makeMove(move, AI_PLAYER);
+            return;
+        }
+
+        // 2. Bloquear JOGADA VENCEDORA do humano (HUMAN_PLAYER = 'X')
+        move = findWinningOrBlockingMove(HUMAN_PLAYER);
+        if (move !== null) {
+            makeMove(move, AI_PLAYER);
+            return;
+        }
+
+        // 3. Tentar pegar o CENTRO (índice 4)
+        if (board[4] === '') {
+            makeMove(4, AI_PLAYER);
+            return;
+        }
+
+        // 4. Tentar pegar um CANTO (0, 2, 6, 8)
+        const corners = [0, 2, 6, 8];
+        const availableCorners = corners.filter(i => board[i] === '');
+        if (availableCorners.length > 0) {
+            const randomIndex = Math.floor(Math.random() * availableCorners.length);
+            makeMove(availableCorners[randomIndex], AI_PLAYER);
+            return;
+        }
+
+        // 5. Pegar um LADO restante (1, 3, 5, 7)
+        const sides = [1, 3, 5, 7];
+        const availableSides = sides.filter(i => board[i] === '');
+        if (availableSides.length > 0) {
+            const randomIndex = Math.floor(Math.random() * availableSides.length);
+            makeMove(availableSides[randomIndex], AI_PLAYER);
+            return;
+        }
+    }
+
+    /**
+     * Função unificada para realizar um movimento da IA.
+     * @param {number} index - O índice para mover.
+     * @param {string} player - O jogador que está se movendo ('O').
+     */
+    function makeMove(index, player) {
+        board[index] = player;
+        updateCell(index, player);
+        checkResult();
+    }
+
+    // --- Inicialização e Reset ---
+
+    /**
+     * Cria e renderiza as 9 células do tabuleiro.
+     */
+    function renderBoard() {
+        boardElement.innerHTML = ''; // Limpa o tabuleiro existente
+        for (let i = 0; i < 9; i++) {
+            const cell = document.createElement('div');
+            cell.id = `cell-${i}`;
+            cell.classList.add('game-cell', 'rounded-lg');
+            
+            // Adiciona o listener de clique
+            cell.onclick = () => handleCellClick(i);
+            
+            boardElement.appendChild(cell);
+        }
+    }
+
+    /**
+     * Reseta o jogo para o estado inicial.
+     */
+    function resetGame() {
+        board = ['', '', '', '', '', '', '', '', ''];
+        currentPlayer = HUMAN_PLAYER; // O humano (X) sempre começa, mesmo contra a IA
+        gameActive = true;
+        winningCombination = null;
+        gameMode = modeSelect.value; // Atualiza o modo do jogo
+
+        // Limpa a interface do usuário
+        renderBoard();
+        
+        // Atualiza o status inicial
+        const initialColor = currentPlayer === HUMAN_PLAYER ? 'text-indigo-600' : 'text-green-600';
+        const displayPlayer = (gameMode === 'PvE') ? `${HUMAN_PLAYER}` : currentPlayer;
+        
+        updateStatus(`Jogador Atual: <span id="current-player-display" class="${initialColor}">${displayPlayer}</span>`);
+    }
+
+    // Adiciona listeners
+    resetButton.addEventListener('click', resetGame);
+    // NOVO: Adiciona listener para a mudança de modo
+    modeSelect.addEventListener('change', resetGame);
+
+    // Inicializa o jogo ao carregar a página
+    window.onload = resetGame;
+
+</script>
+
+</body>
+</html>
